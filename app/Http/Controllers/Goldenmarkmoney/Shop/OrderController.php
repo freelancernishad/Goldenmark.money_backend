@@ -26,17 +26,49 @@ class OrderController extends Controller
 
     /**
      * Get paginated orders list with search and status filtering.
+     * High performance optimized: excludes heavy longtext custom_check_details payloads.
+     * Note: Does NOT generate any payment URLs or trigger external Stripe calls.
      */
     public function index(Request $request)
     {
-        $query = Order::with('items');
+        $query = Order::select([
+            'id',
+            'order_number',
+            'payment_token',
+            'user_id',
+            'customer_name',
+            'customer_email',
+            'customer_phone',
+            'total_amount',
+            'payment_status',
+            'payment_method',
+            'payment_link',
+            'order_status',
+            'created_at',
+            'updated_at',
+        ])->with([
+            'items' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_id',
+                    'product_id',
+                    'product_title',
+                    'item_code',
+                    'selected_color',
+                    'quantity',
+                    'unit_price',
+                    'total_price',
+                ]);
+            }
+        ]);
 
         if ($request->filled('search')) {
-            $search = $request->input('search');
+            $search = trim($request->input('search'));
             $query->where(function ($q) use ($search) {
                 $q->where('order_number', 'like', "%{$search}%")
                   ->orWhere('customer_name', 'like', "%{$search}%")
-                  ->orWhere('customer_email', 'like', "%{$search}%");
+                  ->orWhere('customer_email', 'like', "%{$search}%")
+                  ->orWhere('customer_phone', 'like', "%{$search}%");
             });
         }
 
@@ -44,7 +76,7 @@ class OrderController extends Controller
             $query->where('order_status', $request->input('status'));
         }
 
-        $perPage = (int) ($request->input('per_page') ?? $request->input('perPage') ?? 15);
+        $perPage = min(100, max(1, (int) ($request->input('per_page') ?? $request->input('perPage') ?? 15)));
         $orders = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json($orders);
