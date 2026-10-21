@@ -1,0 +1,43 @@
+name: Security Guard & Anti-Malware Scan
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  security-audit:
+    name: Integrity & Malware Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 1. Block Known Malware Files (api.js)
+        run: |
+          echo "Scanning for unauthorized api.js..."
+          if find . -maxdepth 2 -name "api.js" | grep -q "api.js"; then
+            echo "::error::CRITICAL SECURITY ALERT: Unauthorized 'api.js' detected in repository! Merging blocked."
+            exit 1
+          fi
+          echo "No api.js file found."
+
+      - name: 2. Verify package.json Script Integrity
+        run: |
+          echo "Checking package.json scripts..."
+          SEARCH_TERM="node ""api.js"
+          if grep -i "$SEARCH_TERM" package.json; then
+            echo "::error::CRITICAL: Malicious script injection found in package.json scripts!"
+            exit 1
+          fi
+          echo "package.json scripts are clean."
+
+      - name: 3. Verify vite.config.js Integrity
+        run: |
+          echo "Checking vite.config.js..."
+          if grep -i "global\['!'\]" vite.config.js 2>/dev/null; then
+            echo "::error::CRITICAL: Malicious code injection found in vite.config.js!"
+            exit 1
+          fi
+          echo "vite.config.js is clean."
