@@ -254,7 +254,10 @@ class CheckStripePaymentStatus
                 'gateway_response' => $payload,
             ]);
 
-            Log::info("Payment record created for Transaction: {$transactionId}");
+            // Add the paid amount directly to the user's credit balance
+            $user->increment('credit_balance', $amount);
+
+            Log::info("Payment record created for Transaction: {$transactionId}, added \${$amount} credit to user {$user->id}");
 
         } catch (\Exception $e) {
             Log::error("Failed to create Payment record: " . $e->getMessage());

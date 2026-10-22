@@ -95,9 +95,10 @@ class PlanSubscriptionHandler
 
         // Record payment
         try {
+            $paidAmount = $invoice->amount_paid / 100;
             $subscription->payments()->create([
                 'user_id' => $subscription->user_id,
-                'amount' => $invoice->amount_paid / 100,
+                'amount' => $paidAmount,
                 'currency' => $invoice->currency,
                 'payment_method' => 'stripe',
                 'transaction_id' => $invoice->payment_intent,
@@ -106,6 +107,10 @@ class PlanSubscriptionHandler
                 'webhook_received_at' => now(),
                 'meta' => $invoice,
             ]);
+
+            if ($subscription->user && $paidAmount > 0) {
+                $subscription->user->increment('credit_balance', $paidAmount);
+            }
         } catch (\Exception $e) {
             Log::error("Failed to record recurring payment for subscription {$subscription->id}: " . $e->getMessage());
         }
