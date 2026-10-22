@@ -36,6 +36,70 @@ class UserPlanController extends Controller
             $activeData = $active->toArray();
         }
 
+        // Dynamically compute service rates from the active plan
+        $targetPlan = $active ? $active->plan : ($payAsYouGoPlan ?? null);
+        if ($targetPlan) {
+            $checkRate = null;
+            $emailRate = null;
+            $mailRate = null;
+
+            $features = is_array($targetPlan->features) 
+                ? $targetPlan->features 
+                : (is_array($targetPlan->formatted_features) ? $targetPlan->formatted_features : []);
+
+            foreach ($features as $f) {
+                $lbl = strtolower(trim($f['label'] ?? ''));
+                if (isset($f['price']) && preg_match('/([0-9.]+)/', (string)$f['price'], $m)) {
+                    $val = (float)$m[1];
+                    if ($val > 0) {
+                        if (str_contains($lbl, 'print') || str_contains($lbl, 'check')) {
+                            if (!$checkRate) $checkRate = $val;
+                        }
+                        if (str_contains($lbl, 'email') || str_contains($lbl, 'e-check')) {
+                            if (!$emailRate) $emailRate = $val;
+                        }
+                        if (str_contains($lbl, 'mail')) {
+                            if (!$mailRate) $mailRate = $val;
+                        }
+                    }
+                }
+            }
+
+            // Package rate calculation if not explicit in features
+            preg_match('/(\d+)/', $targetPlan->name, $matches);
+            $checksCount = isset($matches[1]) ? (int)$matches[1] : 0;
+            $planPrice = floatval($targetPlan->discounted_price > 0 ? $targetPlan->discounted_price : $targetPlan->monthly_price);
+            if ($checksCount > 0 && $planPrice > 0) {
+                $computed = round($planPrice / $checksCount, 2);
+                if (!$checkRate) $checkRate = $computed;
+                if (!$emailRate) $emailRate = $computed;
+                if (!$mailRate) $mailRate = round($computed * 2, 2);
+            }
+
+            if (!$checkRate) $checkRate = 0.50;
+            if (!$emailRate) $emailRate = $checkRate;
+            if (!$mailRate) $mailRate = round($checkRate * 2, 2);
+
+            $activeData['check_print_rate'] = $checkRate;
+            $activeData['email_check_rate'] = $emailRate;
+            $activeData['mail_check_rate'] = $mailRate;
+            $activeData['per_check_rate'] = '$' . number_format($checkRate, 2) . ' / check';
+
+            if (isset($activeData['plan'])) {
+                if (is_array($activeData['plan'])) {
+                    $activeData['plan']['check_print_rate'] = $checkRate;
+                    $activeData['plan']['email_check_rate'] = $emailRate;
+                    $activeData['plan']['mail_check_rate'] = $mailRate;
+                    $activeData['plan']['per_check_rate'] = '$' . number_format($checkRate, 2) . ' / check';
+                } elseif (is_object($activeData['plan'])) {
+                    $activeData['plan']->check_print_rate = $checkRate;
+                    $activeData['plan']->email_check_rate = $emailRate;
+                    $activeData['plan']->mail_check_rate = $mailRate;
+                    $activeData['plan']->per_check_rate = '$' . number_format($checkRate, 2) . ' / check';
+                }
+            }
+        }
+
         // Initialize credit_balance if it has never been set (is null)
         if (is_null($user->credit_balance)) {
             $paymentsSum = (float) $user->payments()->whereIn('status', ['paid', 'Success', 'completed', 'succeeded'])->sum('amount');

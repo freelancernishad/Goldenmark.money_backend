@@ -404,12 +404,6 @@ class PaymentController extends Controller
         $business = auth()->user()->businessDetails;
         if (!$business) return response()->json(['message' => 'Business profile required'], 400);
 
-        // Check user credit balance for Check Printing
-        $creditCheck = $this->checkUserCreditForService('Check Printing');
-        if (!$creditCheck['allowed']) {
-            return $creditCheck['response'];
-        }
-
         $validated = $request->validate([
             'account_id' => 'required|exists:accounts,id',
             'number_of_checks' => 'required|integer|min:1|max:100',
@@ -417,6 +411,12 @@ class PaymentController extends Controller
             'include_signature' => 'nullable|string|in:Yes,No',
             'memo' => 'nullable|string|max:255',
         ]);
+
+        // Dynamically check user credit balance for the exact number of checks based on active plan
+        $creditCheck = $this->checkUserCreditForService('Check Printing', (int)$validated['number_of_checks']);
+        if (!$creditCheck['allowed']) {
+            return $creditCheck['response'];
+        }
 
         $account = \App\Models\Goldenmarkmoney\Account::find($validated['account_id']);
         if (!$business->accounts()->where('id', $account->id)->exists()) {
@@ -897,6 +897,81 @@ class PaymentController extends Controller
     }
 
     /**
+     * Dynamically resolve the service rate based on the active plan configuration.
+     */
+    private function getPlanServiceRate($activePlan, $serviceName = 'Check Printing')
+    {
+        if (!$activePlan) {
+            $activePlan = \App\Models\Plan\Plan::where('name', 'like', '%Pay As You Go%')->first()
+                ?? \App\Models\Plan\Plan::find(1)
+                ?? \App\Models\Plan\Plan::first();
+        }
+
+        if (!$activePlan) {
+            return 0.50;
+        }
+
+        $serviceLower = strtolower(trim($serviceName));
+        $isMail = str_contains($serviceLower, 'mail') || str_contains($serviceLower, 'usps') || str_contains($serviceLower, 'postal') || str_contains($serviceLower, 'fedex');
+        $isEmail = str_contains($serviceLower, 'email') || str_contains($serviceLower, 'e-check') || str_contains($serviceLower, 'echeck');
+        $isPrint = str_contains($serviceLower, 'print') || str_contains($serviceLower, 'paper') || str_contains($serviceLower, 'stock') || str_contains($serviceLower, 'check');
+
+        // 1. Inspect features configured directly on the plan
+        $features = is_array($activePlan->features) 
+            ? $activePlan->features 
+            : (is_array($activePlan->formatted_features) ? $activePlan->formatted_features : []);
+
+        foreach ($features as $feature) {
+            $labelLower = strtolower(trim($feature['label'] ?? ''));
+            $matches = false;
+
+            if ($isMail && (str_contains($labelLower, 'mail') || str_contains($labelLower, 'usps') || str_contains($labelLower, 'postal'))) {
+                $matches = true;
+            } elseif ($isEmail && (str_contains($labelLower, 'email') || str_contains($labelLower, 'e-check') || str_contains($labelLower, 'echeck'))) {
+                $matches = true;
+            } elseif ($isPrint && (str_contains($labelLower, 'print') || str_contains($labelLower, 'check'))) {
+                $matches = true;
+            }
+
+            if ($matches && isset($feature['price'])) {
+                if (preg_match('/([0-9.]+)/', (string)$feature['price'], $m)) {
+                    $val = (float) $m[1];
+                    if ($val > 0) {
+                        return $val;
+                    }
+                }
+            }
+        }
+
+        // 2. Package calculation (monthly_price or discounted_price / checks_count)
+        preg_match('/(\d+)/', $activePlan->name, $matches);
+        $checksCount = isset($matches[1]) ? (int)$matches[1] : 0;
+        $planPrice = floatval($activePlan->discounted_price > 0 ? $activePlan->discounted_price : $activePlan->monthly_price);
+        if ($checksCount > 0 && $planPrice > 0) {
+            $computed = round($planPrice / $checksCount, 2);
+            if ($isMail) {
+                return round($computed * 2, 2);
+            }
+            return $computed;
+        }
+
+        // 3. Fallback: Check Pay As You Go in DB if current plan had no pricing
+        $payAsYouGo = \App\Models\Plan\Plan::where('name', 'like', '%Pay As You Go%')->first();
+        if ($payAsYouGo && $payAsYouGo->id !== $activePlan->id && is_array($payAsYouGo->features)) {
+            foreach ($payAsYouGo->features as $feature) {
+                $labelLower = strtolower(trim($feature['label'] ?? ''));
+                if ($isPrint && str_contains($labelLower, 'print')) {
+                    if (isset($feature['price']) && preg_match('/([0-9.]+)/', (string)$feature['price'], $m)) {
+                        return (float) $m[1];
+                    }
+                }
+            }
+        }
+
+        return 0.50;
+    }
+
+    /**
      * Check whether the user has sufficient credit balance for a check service (Print, Email, Mail).
      */
     private function checkUserCreditForService($serviceName = 'Check Printing', $itemCount = 1)
@@ -916,25 +991,11 @@ class PaymentController extends Controller
                ?? \App\Models\Plan\Plan::find(1) 
                ?? \App\Models\Plan\Plan::first());
 
-        // Determine price for service based on user plan
-        $servicePrice = 0.75; // Default fallback for Pay As You Go
-        if ($activePlan && is_array($activePlan->features)) {
-            $searchLower = strtolower(trim($serviceName));
-            foreach ($activePlan->features as $feature) {
-                if (isset($feature['price'])) {
-                    $featureLabelLower = strtolower(trim($feature['label'] ?? ''));
-                    if ($featureLabelLower === $searchLower || str_contains($featureLabelLower, $searchLower) || str_contains($searchLower, $featureLabelLower)) {
-                        $parsedPrice = (float) str_replace(['$', ' '], '', $feature['price']);
-                        if ($parsedPrice >= 0) {
-                            $servicePrice = $parsedPrice;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        // Determine price dynamically based on user's active plan
+        $servicePrice = $this->getPlanServiceRate($activePlan, $serviceName);
 
-        $totalCost = $servicePrice * max(1, (int)$itemCount);
+        $itemCount = max(1, (int)$itemCount);
+        $totalCost = $servicePrice * $itemCount;
         $availableCredit = (float) ($user->credit_balance ?? 0);
 
         if ($availableCredit < $totalCost) {
@@ -948,6 +1009,10 @@ class PaymentController extends Controller
                     'message' => "Insufficient credit balance. {$serviceName} requires \${$formattedTotalCost} USD on your {$planName}. Available balance: \${$formattedAvailable} USD. Please recharge your credit balance to perform check printing, emailing or mailing.",
                     'require_recharge' => true,
                     'service_cost' => $totalCost,
+                    'service_price' => $servicePrice,
+                    'item_count' => $itemCount,
+                    'service_name' => $serviceName,
+                    'plan_name' => $planName,
                     'current_credit' => $availableCredit,
                 ], 402);
             } else {
