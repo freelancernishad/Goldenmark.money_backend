@@ -34,15 +34,20 @@
             background: #ffffff;
             text-align: center;
         }
-        .brand-logo-text {
-            font-size: 24px;
-            font-weight: 900;
-            color: #0f172a;
-            letter-spacing: -0.5px;
+        .brand-logo-link {
             text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+            display: inline-block;
+        }
+        .brand-logo-img {
+            max-height: 48px;
+            width: auto;
+            max-width: 220px;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+            border: 0;
+            outline: none;
+            text-decoration: none;
         }
         .brand-badge {
             display: inline-block;
@@ -172,10 +177,15 @@
 
                     <!-- Brand Header -->
                     <div class="brand-header">
-                        <div class="brand-logo-text">
-                            <span style="color: #0f172a;">GoldenMark</span>
-                            <span style="color: #f59e0b;">Money</span>
-                        </div>
+                        <a href="{{ $frontendUrl ?? env('FRONTEND_URL', 'https://goldenmark.money') }}" target="_blank" class="brand-logo-link" style="text-decoration: none; display: inline-block;">
+                            @if(isset($message) && file_exists(public_path('images/logo.png')))
+                                <img src="{{ $message->embed(public_path('images/logo.png')) }}" alt="GoldenMark Money" class="brand-logo-img" style="max-height: 48px; width: auto; max-width: 220px; display: block; margin: 0 auto; border: 0;" />
+                            @elseif(isset($message) && file_exists(public_path('logo.png')))
+                                <img src="{{ $message->embed(public_path('logo.png')) }}" alt="GoldenMark Money" class="brand-logo-img" style="max-height: 48px; width: auto; max-width: 220px; display: block; margin: 0 auto; border: 0;" />
+                            @else
+                                <img src="{{ $logoUrl ?? (rtrim(env('FRONTEND_URL', 'https://goldenmark.money'), '/') . '/logo.png') }}" alt="GoldenMark Money" class="brand-logo-img" style="max-height: 48px; width: auto; max-width: 220px; display: block; margin: 0 auto; border: 0;" />
+                            @endif
+                        </a>
                         <div>
                             <span class="brand-badge">User Reply Alert</span>
                         </div>

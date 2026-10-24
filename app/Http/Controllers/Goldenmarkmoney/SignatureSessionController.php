@@ -94,10 +94,17 @@ class SignatureSessionController extends Controller
 
         // Send Email via Mailer
         try {
+            $brandSiteUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://goldenmark.money')), '/');
+            $brandLogoUrl = $brandSiteUrl . '/logo.png';
             Mail::html("
-                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;'>
-                    <h2 style='color: #0f172a;'>GoldenMark Signature Request</h2>
-                    <p style='color: #475569; font-size: 14px;'>You have been requested to provide your authorized signature for Bank Account #{$accountId}.</p>
+                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;'>
+                    <div style='text-align: center; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9;'>
+                        <a href='{$brandSiteUrl}' target='_blank' style='display: inline-block; text-decoration: none;'>
+                            <img src='{$brandLogoUrl}' alt='GoldenMark Money' style='max-height: 44px; width: auto; max-width: 200px; display: block; margin: 0 auto; border: 0;' />
+                        </a>
+                    </div>
+                    <h2 style='color: #0f172a; text-align: center; margin-top: 0;'>GoldenMark Signature Request</h2>
+                    <p style='color: #475569; font-size: 14px; line-height: 1.6;'>You have been requested to provide your authorized signature for Bank Account #{$accountId}.</p>
                     <div style='margin: 30px 0; text-align: center;'>
                         <a href='{$signatureLink}' target='_blank' style='background-color: #2d3359; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block;'>
                             Click Here to Sign on Screen / Phone
