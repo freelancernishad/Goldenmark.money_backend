@@ -1,8 +1,8 @@
 {
   "by_name": {
     "chase": "/images/bank-logos/ins_3.png",
-    "bank of america": "/images/bank-logos/ins_1.png",
-    "wells fargo": "/images/bank-logos/ins_4.png",
+    "bank of america": "/images/bank-logos/bank_of_america.svg",
+    "wells fargo": "/images/bank-logos/wells_fargo.svg",
     "citi": "/images/bank-logos/ins_5.png",
     "citibank": "/images/bank-logos/ins_5.png",
     "citizens": "/images/bank-logos/ins_20.png",
@@ -26,8 +26,10 @@
   },
   "by_institution_id": {
     "ins_3": "/images/bank-logos/ins_3.png",
-    "ins_1": "/images/bank-logos/ins_1.png",
-    "ins_4": "/images/bank-logos/ins_4.png",
+    "ins_1": "/images/bank-logos/bank_of_america.svg",
+    "ins_127989": "/images/bank-logos/bank_of_america.svg",
+    "ins_4": "/images/bank-logos/wells_fargo.svg",
+    "ins_127991": "/images/bank-logos/wells_fargo.svg",
     "ins_5": "/images/bank-logos/ins_5.png",
     "ins_20": "/images/bank-logos/ins_20.png",
     "ins_10": "/images/bank-logos/capital_one.png",

@@ -967,17 +967,13 @@ class PlaidService
      */
     public static function resolveFullBankLogo(?string $instName, ?string $instUrl, ?string $logoRaw = null, ?string $instId = null): ?string
     {
-        if ($logoRaw) {
-            return str_starts_with($logoRaw, 'data:') ? $logoRaw : "data:image/png;base64,{$logoRaw}";
-        }
-
-        // 1. JSON Config-Driven Mapping for ins_*.png files
+        // 1. JSON Config-Driven Mapping for high-resolution brand SVGs / PNGs
         $jsonPath = config_path('bank_logos.json');
         if (file_exists($jsonPath)) {
             $config = json_decode(file_get_contents($jsonPath), true);
             $nameLower = strtolower($instName ?? '');
 
-            // Match by institution_id (e.g. ins_3 -> /images/bank-logos/ins_3.png)
+            // Match by institution_id (e.g. ins_1 / ins_127989 -> /images/bank-logos/bank_of_america.svg)
             if (!empty($instId) && isset($config['by_institution_id'][$instId])) {
                 return $config['by_institution_id'][$instId];
             }
@@ -991,6 +987,12 @@ class PlaidService
                 }
             }
         }
+
+        // 2. Fallback to Plaid API provided raw base64 logo
+        if ($logoRaw) {
+            return str_starts_with($logoRaw, 'data:') ? $logoRaw : "data:image/png;base64,{$logoRaw}";
+        }
+
 
         // 2. Direct instId local asset lookup fallback
         if (!empty($instId) && file_exists(public_path("images/bank-logos/{$instId}.png"))) {
