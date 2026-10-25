@@ -142,18 +142,70 @@ public function index(Request $request)
         $amount = (float) $request->input('amount');
         $type = $request->input('type', 'add');
 
-        if ($type === 'set') {
-            $user->credit_balance = $amount;
-        } else {
-            $user->credit_balance = ($user->credit_balance ?? 0) + $amount;
+        $oldBalance = (float) ($user->credit_balance ?? 0);
+        $newBalance = $type === 'set' ? $amount : ($oldBalance + $amount);
+        $diff = round($newBalance - $oldBalance, 2);
+
+        $note = $diff >= 0 ? "Admin recharge to user" : "Admin debited from user";
+
+        if ($diff > 0) {
+            // Case 1: Admin Recharge / Added
+            $user->credit_balance = $newBalance;
+
+            // Record in payments table so totalRecharged and Statement reflect it
+            $user->payments()->create([
+                'payable_type' => get_class($user),
+                'payable_id' => $user->id,
+                'amount' => $diff,
+                'status' => 'paid',
+                'currency' => 'usd',
+                'payment_method' => 'admin_recharge',
+                'transaction_id' => 'adm_rec_' . uniqid(),
+                'meta' => [
+                    'description' => $note,
+                    'note' => $note . " (+$" . number_format($diff, 2) . " USD)",
+                    'old_balance' => $oldBalance,
+                    'new_balance' => $newBalance,
+                ]
+            ]);
+        } elseif ($diff < 0) {
+            // Case 2: Admin Debit / Reduced
+            $debitAmount = abs($diff);
+            $user->credit_balance = $newBalance;
+            // Increment used_credits so totalRecharged - used_credits stays consistent with newBalance
+            $user->used_credits = round((float) ($user->used_credits ?? 0) + $debitAmount, 2);
+
+            // Record in payments table with payment_method 'admin_debit'
+            $user->payments()->create([
+                'payable_type' => get_class($user),
+                'payable_id' => $user->id,
+                'amount' => $debitAmount,
+                'status' => 'paid',
+                'currency' => 'usd',
+                'payment_method' => 'admin_debit',
+                'transaction_id' => 'adm_deb_' . uniqid(),
+                'meta' => [
+                    'description' => $note,
+                    'note' => $note . " (-$" . number_format($debitAmount, 2) . " USD)",
+                    'old_balance' => $oldBalance,
+                    'new_balance' => $newBalance,
+                ]
+            ]);
         }
+
+        // Auto append note to user's notes field
+        $timestamp = now()->toDateTimeString();
+        $formattedDiff = ($diff >= 0 ? "+$" : "-$") . number_format(abs($diff), 2);
+        $logLine = "[{$timestamp}] {$note}: {$formattedDiff} (Balance: $" . number_format($newBalance, 2) . ")";
+        $user->notes = $user->notes ? ($user->notes . "\n" . $logLine) : $logLine;
 
         $user->save();
 
         return response()->json([
             'data' => new AdminUserResource($user),
-            'message' => 'Credit balance updated successfully',
-            'credit_balance' => $user->credit_balance
+            'message' => "Credit balance updated successfully ({$note})",
+            'credit_balance' => $user->credit_balance,
+            'note' => $note,
         ]);
     }
 

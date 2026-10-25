@@ -102,16 +102,16 @@ class UserPlanController extends Controller
 
         // Ensure credit_balance is initialized or synced if missing despite paid payments
         if (is_null($user->credit_balance) || (float)$user->credit_balance <= 0) {
-            $paymentsSum = (float) $user->payments()->whereIn('status', ['paid', 'Success', 'completed', 'succeeded'])->sum('amount');
+            $paymentsSum = (float) $user->payments()
+                ->whereIn('status', ['paid', 'Success', 'completed', 'succeeded'])
+                ->where('payment_method', '!=', 'admin_debit')
+                ->sum('amount');
             $subsSum = (float) $user->planSubscriptions()->where('status', 'active')->sum('final_amount');
             
             $totalRecharged = max($paymentsSum, $subsSum);
             if ($totalRecharged > 0) {
                 $usedCredits = (float) ($user->used_credits ?? 0);
                 $netCredit = max(0, $totalRecharged - $usedCredits);
-                if ($netCredit <= 0 && $paymentsSum > 0) {
-                    $netCredit = $paymentsSum;
-                }
                 $user->credit_balance = $netCredit;
                 $user->save();
             }
@@ -153,44 +153,59 @@ class UserPlanController extends Controller
     {
         $user = $request->user();
 
-        // 1. Fetch all Credit Recharges (from Payments / Subscriptions)
-        $recharges = $user->payments()
+        // 1. Fetch Plan Subscriptions as initial Credits
+        $subs = $user->planSubscriptions()
+            ->where('status', 'active')
+            ->orderBy('start_date', 'asc')
+            ->get()
+            ->map(function ($s) {
+                return [
+                    'id' => 'SUB-' . str_pad($s->id, 5, '0', STR_PAD_LEFT),
+                    'date' => \Carbon\Carbon::parse($s->start_date)->format('m/d/Y H:i'),
+                    'raw_date' => \Carbon\Carbon::parse($s->start_date)->timestamp,
+                    'description' => 'Plan Purchase Credit: ' . ($s->plan->name ?? 'Subscription'),
+                    'type' => 'Credit',
+                    'amount' => (float) $s->final_amount,
+                    'status' => 'Success',
+                ];
+            });
+
+        // 2. Fetch Payments (Recharges, Admin Recharges, and Admin Debits)
+        $paymentItems = $user->payments()
             ->where('status', 'paid')
             ->orderBy('created_at', 'asc')
             ->get()
             ->map(function ($p) {
+                $meta = is_array($p->meta) ? $p->meta : (json_decode($p->meta, true) ?? []);
+                $isDebit = ($p->payment_method === 'admin_debit');
+                $defaultDesc = $isDebit 
+                    ? 'Admin debited from user' 
+                    : ($p->payment_method === 'admin_recharge' ? 'Admin recharge to user' : 'Credit Recharge Payment (Via Stripe)');
+
                 return [
-                    'id' => 'RECHARGE-' . str_pad($p->id, 5, '0', STR_PAD_LEFT),
+                    'id' => ($isDebit ? 'DEBIT-' : 'RECHARGE-') . str_pad($p->id, 5, '0', STR_PAD_LEFT),
                     'date' => $p->created_at->format('m/d/Y H:i'),
                     'raw_date' => $p->created_at->timestamp,
-                    'description' => 'Credit Recharge Payment (Via Stripe)',
-                    'type' => 'Credit',
+                    'description' => $meta['description'] ?? $defaultDesc,
+                    'type' => $isDebit ? 'Debit' : 'Credit',
                     'amount' => (float) $p->amount,
                     'status' => 'Success',
                 ];
             });
 
-        // If no payments record yet, check active subscriptions
-        if ($recharges->isEmpty()) {
-            $subs = $user->planSubscriptions()
-                ->where('status', 'active')
-                ->orderBy('start_date', 'asc')
-                ->get()
-                ->map(function ($s) {
-                    return [
-                        'id' => 'SUB-' . str_pad($s->id, 5, '0', STR_PAD_LEFT),
-                        'date' => \Carbon\Carbon::parse($s->start_date)->format('m/d/Y H:i'),
-                        'raw_date' => \Carbon\Carbon::parse($s->start_date)->timestamp,
-                        'description' => 'Plan Purchase Credit: ' . ($s->plan->name ?? 'Subscription'),
-                        'type' => 'Credit',
-                        'amount' => (float) $s->final_amount,
-                        'status' => 'Success',
-                    ];
-                });
-            $recharges = collect($subs);
+        // 3. Fetch all Debit Usages (from Payment Logs / Check Actions)
+        $activeSub = $user->planSubscriptions()->where('status', 'active')->latest('start_date')->first();
+        $activePlan = $activeSub ? $activeSub->plan : null;
+        $checkPrice = 1.00;
+        if ($activePlan && is_array($activePlan->features)) {
+            foreach ($activePlan->features as $f) {
+                if (str_contains(strtolower($f['label'] ?? ''), 'print') && isset($f['price']) && preg_match('/([0-9.]+)/', (string)$f['price'], $m)) {
+                    $checkPrice = (float) $m[1];
+                    break;
+                }
+            }
         }
 
-        // 2. Fetch all Debit Usages (from Payment Logs / Check Actions)
         $debits = \DB::table('company_payment_logs')
             ->join('company_payments', 'company_payments.id', '=', 'company_payment_logs.company_payment_id')
             ->where('company_payment_logs.initiated_by', $user->id)
@@ -202,7 +217,7 @@ class UserPlanController extends Controller
             ->orderBy('company_payment_logs.created_at', 'asc')
             ->select('company_payment_logs.*', 'company_payments.check_number')
             ->get()
-            ->map(function ($log) {
+            ->map(function ($log) use ($checkPrice) {
                 $serviceName = str_contains($log->note, 'printed') ? 'Check Print' : (str_contains($log->note, 'email') ? 'Email Check' : 'Mail Check');
                 return [
                     'id' => 'USAGE-' . str_pad($log->id, 5, '0', STR_PAD_LEFT),
@@ -210,13 +225,13 @@ class UserPlanController extends Controller
                     'raw_date' => \Carbon\Carbon::parse($log->created_at)->timestamp,
                     'description' => "{$serviceName} #CK-{$log->check_number}",
                     'type' => 'Debit',
-                    'amount' => 0.50,
+                    'amount' => $checkPrice,
                     'status' => 'Success',
                 ];
             });
 
-        // 3. Merge and Sort chronologically
-        $all = collect($recharges)->concat($debits)->sortBy('raw_date')->values();
+        // 4. Merge and Sort chronologically
+        $all = collect($subs)->concat($paymentItems)->concat($debits)->sortBy('raw_date')->values();
 
         // 4. Calculate Running Balance
         $runningBalance = 0.00;
