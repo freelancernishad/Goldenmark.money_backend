@@ -47,6 +47,26 @@ class Account extends Model
         'ach_auth_form' => 'array',
     ];
 
+    /**
+     * Ensure institution logo resolves to a crisp brand SVG/PNG asset if raw base64 or unlinked.
+     */
+    public function getInstitutionLogoAttribute($value)
+    {
+        if (!empty($value) && !str_starts_with($value, 'data:')) {
+            return $value;
+        }
+
+        $bankName = $this->institution_name;
+        if (!empty($bankName)) {
+            $brandLogo = \App\Services\Goldenmarkmoney\PlaidService::resolveFullBankLogo($bankName, null, null, null);
+            if (!empty($brandLogo) && !str_starts_with($brandLogo, 'data:')) {
+                return $brandLogo;
+            }
+        }
+
+        return $value;
+    }
+
     public function company()
     {
         return $this->belongsTo(BusinessDetail::class, 'company_id');
