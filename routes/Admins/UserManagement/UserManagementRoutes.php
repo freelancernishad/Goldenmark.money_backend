@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Middleware\AuthenticateAdmin;
 use App\Http\Controllers\Admin\UserManagement\AdminUserController;
+use App\Http\Controllers\Admin\UserManagement\AdminUserAccessController;
 
 Route::prefix('admin')->middleware(AuthenticateAdmin::class)->group(function () {
     Route::get('users', [AdminUserController::class, 'index']);
@@ -18,6 +19,11 @@ Route::prefix('admin')->middleware(AuthenticateAdmin::class)->group(function () 
     Route::patch('users/{id}/verify-email', [AdminUserController::class, 'verifyEmail']);
     Route::patch('users/{id}/update-notes', [AdminUserController::class, 'updateNotes']);
     Route::post('users/bulk-action', [AdminUserController::class, 'bulkAction']);
-    Route::post('users/{id}/impersonate', [AdminUserController::class, 'impersonate']);
     Route::delete('users/{id}', [AdminUserController::class, 'destroy']);
+
+    // Dedicated User Access & 2FA Management
+    Route::post('users/{id}/impersonate', [AdminUserAccessController::class, 'impersonate']);
+    Route::get('users/{id}/2fa', [AdminUserAccessController::class, 'getTwoFactor']);
+    Route::post('users/{id}/2fa/generate', [AdminUserAccessController::class, 'generateTwoFactor']);
+    Route::post('users/{id}/2fa/disable', [AdminUserAccessController::class, 'disableTwoFactor']);
 });

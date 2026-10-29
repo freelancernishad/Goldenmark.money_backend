@@ -18,6 +18,8 @@ class AdminUserResource extends JsonResource
             'is_active' => $this->is_active,
             'is_blocked' => $this->is_blocked,
             'email_verified' => !is_null($this->email_verified_at),
+            'has_2fa_enabled' => $this->hasTwoFactorEnabled(),
+            'has_2fa_secret' => !empty($this->google2fa_secret),
             'last_login_at' => $this->last_login_at,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
