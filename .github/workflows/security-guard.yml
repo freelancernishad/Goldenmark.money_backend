@@ -1,43 +1,54 @@
-name: Security Guard & Anti-Malware Scan
+name: Security Anti-Malware Guard
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["**"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["**"]
 
 jobs:
-  security-audit:
-    name: Integrity & Malware Verification
+  scan-malware:
+    name: Scan Repository for Malware & Unauthorized Injections
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: 1. Block Known Malware Files (api.js)
+      - name: Malware & Injection Detection Check
         run: |
-          echo "Scanning for unauthorized api.js..."
-          if find . -maxdepth 2 -name "api.js" | grep -q "api.js"; then
-            echo "::error::CRITICAL SECURITY ALERT: Unauthorized 'api.js' detected in repository! Merging blocked."
-            exit 1
-          fi
-          echo "No api.js file found."
+          echo "=== Running Security Anti-Malware Guard ==="
+          FAILED=0
 
-      - name: 2. Verify package.json Script Integrity
-        run: |
-          echo "Checking package.json scripts..."
-          SEARCH_TERM="node ""api.js"
-          if grep -i "$SEARCH_TERM" package.json; then
-            echo "::error::CRITICAL: Malicious script injection found in package.json scripts!"
-            exit 1
+          # 1. Check for api.js or suspicious files
+          if find . -maxdepth 4 -not -path "*/node_modules/*" -not -path "*/.git/*" -name "api.js" | grep -q .; then
+            echo "❌ CRITICAL SECURITY ERROR: Malware file 'api.js' detected in repository!"
+            find . -maxdepth 4 -not -path "*/node_modules/*" -not -path "*/.git/*" -name "api.js"
+            FAILED=1
           fi
-          echo "package.json scripts are clean."
 
-      - name: 3. Verify vite.config.js Integrity
-        run: |
-          echo "Checking vite.config.js..."
-          if grep -i "global\['!'\]" vite.config.js 2>/dev/null; then
-            echo "::error::CRITICAL: Malicious code injection found in vite.config.js!"
+          if [ -f "branch_structure.json" ] || [ -f "temp_auto_push.bat" ] || [ -f "temp_interactive_push.bat" ]; then
+            echo "❌ CRITICAL SECURITY ERROR: Suspicious dropper file detected (branch_structure.json / temp_auto_push.bat)!"
+            FAILED=1
+          fi
+
+          # 2. Check package.json scripts for node api.js
+          if grep -rn --exclude-dir={node_modules,.git,.github} "node api.js" .; then
+            echo "❌ CRITICAL SECURITY ERROR: 'node api.js' found in project configuration or scripts!"
+            FAILED=1
+          fi
+
+          # 3. Check for obfuscated malware signatures (global['!'], etc.)
+          if grep -rn --exclude-dir={node_modules,.git,.github,.next,dist,build} "global['!']" . || \
+             grep -rn --exclude-dir={node_modules,.git,.github,.next,dist,build} 'global\["!"\]' . || \
+             grep -rn --exclude-dir={node_modules,.git,.github,.next,dist,build} 'global\.i[[:space:]]*=' . || \
+             grep -rn --exclude-dir={node_modules,.git,.github,.next,dist,build} "rv\$mIJCKYxZ" .; then
+            echo "❌ CRITICAL SECURITY ERROR: Obfuscated malware signature detected!"
+            FAILED=1
+          fi
+
+          if [ $FAILED -ne 0 ]; then
+            echo "Security check failed. Please remove unauthorized injections and purge malware."
             exit 1
           fi
-          echo "vite.config.js is clean."
+
+          echo "✅ Repository passed all Anti-Malware Security checks."
