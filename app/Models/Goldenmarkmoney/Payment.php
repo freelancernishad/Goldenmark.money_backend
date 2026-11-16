@@ -44,7 +44,7 @@ class Payment extends Model
     ];
 
     protected $casts = [
-        'issue_date' => 'date',
+        'issue_date' => 'date:Y-m-d',
         'remittance_info' => 'array',
         'delivery_proof' => 'array',
         'process_without' => 'array',
