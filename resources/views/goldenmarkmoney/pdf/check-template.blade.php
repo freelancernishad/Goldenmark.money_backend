@@ -96,8 +96,13 @@
             @if(!empty($payment->company_name))
             <div class="payer-name">{{ $payment->company_name }}</div>
             @endif
-            @if(!empty($payment->company_address))
-            <div class="payer-address">{{ $payment->company_address }}</div>
+            @php
+                $displayCompanyAddress = !empty($payment->company_address)
+                    ? trim(preg_replace('/^(?:U\.?S\.?A\.?|U\.?S\.?|United States(?: of America)?)$/i', '', preg_replace('/(?:,\s*|\s+)(?:U\.?S\.?A\.?|U\.?S\.?|United States(?: of America)?)\s*$/i', '', $payment->company_address)))
+                    : '';
+            @endphp
+            @if(!empty($displayCompanyAddress))
+            <div class="payer-address">{{ $displayCompanyAddress }}</div>
             @endif
         </div>
 
